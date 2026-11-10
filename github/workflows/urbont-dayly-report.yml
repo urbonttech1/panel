@@ -1,0 +1,50 @@
+name: Urbont Daily Development Report
+
+on:
+  schedule:
+    - cron: "15 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  daily-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate daily report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+
+          gh api "repos/$REPO/commits?since=$SINCE&per_page=100" > commits.json
+
+          gh api "repos/$REPO/pulls?state=all&sort=updated&direction=desc&per_page=100" > pulls.json
+
+          {
+            echo "# URBONT - Daily Development Report"
+            echo ""
+            echo "Period: Last 24 hours"
+            echo ""
+            echo "## Commits by developers"
+
+            jq -r '.[] | "- *\(.commit.author.name // .author.login // "Unknown")* - \(.commit.message | split("\n")[0]) (\(.sha[0:7]))"' commits.json
+
+            echo ""
+            echo "## Pull requests"
+
+            jq -r --arg since "$SINCE" '.[] | select(.updated_at >= $since) | "- #\(.number) \(.title) - \(.state), updated \(.updated_at)"' pulls.json
+
+            echo ""
+            echo "## Important"
+            echo "This report shows recorded GitHub activity. It does not prove hours worked or capture uncommitted changes."
+          } > report.md
+
+          gh issue create \
+            --title "Urbont Daily Report - $(date -u +%Y-%m-%d)" \
+            --body-file report.md  
